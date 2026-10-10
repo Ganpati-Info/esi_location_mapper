@@ -12,8 +12,8 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       : NextResponse.json({ error: "Record not found." }, { status: 404 });
   }
 
-  const [rows] = await db.query("SELECT * FROM location_records WHERE id = ?", [id]);
-  const record = (rows as any[])[0];
+  const result = await db.query("SELECT * FROM location_records WHERE id = $1", [id]);
+  const record = result.rows[0];
 
   if (!record) {
     return NextResponse.json({ error: "Record not found." }, { status: 404 });

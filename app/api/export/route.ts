@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getAvailableRecords } from "@/lib/records";
+import type { LocationRecord } from "@/types";
 
 export async function GET() {
-  const data = db
-    ? ((await db.query("SELECT * FROM location_records ORDER BY id"))[0] as any[])
+  const data: LocationRecord[] = db
+    ? (await db.query<LocationRecord>(
+        "SELECT * FROM location_records ORDER BY id"
+      )).rows
     : await getAvailableRecords();
 
-  const headers = [
+  const headers: Array<keyof LocationRecord> = [
     "id","original_address","full_address","recipient_name","village_name","landmark",
     "tehsil_taluka","block_name","district","state","post_office_name","pin_code",
     "phone_number","latitude","longitude","normalization_provider","geocode_provider",

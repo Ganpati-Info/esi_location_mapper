@@ -64,7 +64,7 @@ export async function insertProcessed(record: Omit<LocationRecord, "id" | "creat
     throw new Error("DATABASE_URL is missing. Upload processing requires a configured database.");
   }
 
-  await db.execute(
+  await db.query(
     `INSERT INTO location_records
     (
       original_address, full_address, recipient_name, village_name, landmark,
@@ -73,7 +73,7 @@ export async function insertProcessed(record: Omit<LocationRecord, "id" | "creat
       geocode_provider, confidence_score, status, error_message,
       source_row_number, source_file_name
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
     [
       record.original_address, record.full_address, record.recipient_name,
       record.village_name, record.landmark, record.tehsil_taluka,

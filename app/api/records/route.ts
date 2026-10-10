@@ -26,40 +26,41 @@ export async function GET(request: NextRequest) {
   }
 
   const where: string[] = [];
-  const values: unknown[] = [];
+  const values: string[] = [];
 
   if (search) {
     const q = `%${search}%`;
     where.push(`(
-      original_address LIKE ? OR full_address LIKE ? OR recipient_name LIKE ? OR
-      village_name LIKE ? OR landmark LIKE ? OR tehsil_taluka LIKE ? OR
-      block_name LIKE ? OR district LIKE ? OR state LIKE ? OR
-      post_office_name LIKE ? OR pin_code LIKE ? OR phone_number LIKE ?
+      original_address ILIKE $1 OR full_address ILIKE $1 OR recipient_name ILIKE $1 OR
+      village_name ILIKE $1 OR landmark ILIKE $1 OR tehsil_taluka ILIKE $1 OR
+      block_name ILIKE $1 OR district ILIKE $1 OR state ILIKE $1 OR
+      post_office_name ILIKE $1 OR pin_code ILIKE $1 OR phone_number ILIKE $1
     )`);
-    values.push(q,q,q,q,q,q,q,q,q,q,q,q);
+    values.push(q);
   }
 
   if (status) {
-    where.push("status = ?");
     values.push(status);
+    where.push(`status = $${values.length}`);
   }
 
   if (district) {
-    where.push("district = ?");
     values.push(district);
+    where.push(`district = $${values.length}`);
   }
 
   if (block) {
-    where.push("block_name = ?");
     values.push(block);
+    where.push(`block_name = $${values.length}`);
   }
 
   const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const limitParameter = values.length + 1;
 
-  const [rows] = await db.query(
-    `SELECT * FROM location_records ${clause} ORDER BY id DESC LIMIT ?`,
+  const result = await db.query(
+    `SELECT * FROM location_records ${clause} ORDER BY id DESC LIMIT $${limitParameter}`,
     [...values, limit]
   );
 
-  return NextResponse.json({ records: rows });
+  return NextResponse.json({ records: result.rows });
 }

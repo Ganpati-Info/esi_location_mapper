@@ -21,17 +21,17 @@ export async function GET() {
     });
   }
 
-  const [statsRows] = await db.query(`
+  const statsResult = await db.query(`
     SELECT
       COUNT(*) AS total,
-      SUM(status = 'processed') AS processed,
-      SUM(status = 'review') AS review,
-      SUM(status = 'unresolved') AS unresolved,
-      SUM(latitude IS NOT NULL AND longitude IS NOT NULL) AS mapped
+      COUNT(*) FILTER (WHERE status = 'processed') AS processed,
+      COUNT(*) FILTER (WHERE status = 'review') AS review,
+      COUNT(*) FILTER (WHERE status = 'unresolved') AS unresolved,
+      COUNT(*) FILTER (WHERE latitude IS NOT NULL AND longitude IS NOT NULL) AS mapped
     FROM location_records
   `);
 
-  const [districtRows] = await db.query(`
+  const districtResult = await db.query(`
     SELECT district, COUNT(*) AS count
     FROM location_records
     WHERE district IS NOT NULL AND district <> ''
@@ -41,7 +41,7 @@ export async function GET() {
   `);
 
   return NextResponse.json({
-    stats: (statsRows as any[])[0],
-    districts: districtRows
+    stats: statsResult.rows[0],
+    districts: districtResult.rows
   });
 }
