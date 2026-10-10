@@ -1,4 +1,4 @@
-# Location Connect Demo v2 by GIS
+# Location Connect Demo v2 developed by GIS
 
 This version does not use Bhuvan.
 
