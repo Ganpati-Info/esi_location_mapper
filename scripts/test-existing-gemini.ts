@@ -1,4 +1,5 @@
 import { loadEnvConfig } from "@next/env";
+import type { PoolClient } from "pg";
 
 // IMPORTANT: Load .env before importing the database module.
 loadEnvConfig(process.cwd());
@@ -149,7 +150,7 @@ async function main() {
       continue;
     }
 
-    let client: Awaited<ReturnType<typeof db.connect>> | undefined;
+    let client: PoolClient | undefined;
 
     try {
       const record = await processRecord({

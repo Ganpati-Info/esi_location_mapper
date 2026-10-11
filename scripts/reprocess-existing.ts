@@ -1,5 +1,5 @@
 import { loadEnvConfig } from "@next/env";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 
 // Load .env and .env.local before importing application modules.
 loadEnvConfig(process.cwd());
@@ -143,7 +143,7 @@ async function main() {
 
       console.log("Original address:", row.original_address ?? "(empty)");
 
-      let client: Awaited<ReturnType<typeof pool.connect>> | undefined;
+      let client: PoolClient | undefined;
 
       try {
         let record;
