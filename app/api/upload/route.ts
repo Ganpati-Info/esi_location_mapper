@@ -1,130 +1,213 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readFile, detectMapping } from "@/lib/excel";
-import { insertProcessed, processRecord } from "@/lib/process";
+import { createUploadJob, type QueueRowInput } from "@/lib/job-queue";
 import { db } from "@/lib/db";
-import { addLocalRecord } from "@/lib/local-store";
-import type { LocationRecord } from "@/types";
-import { checkMapplsAccess } from "@/lib/mappls";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-function cell(values: string[], index: number | undefined) {
-  if (index === undefined) return null;
+function cell(values: string[], index: number | undefined): string | null {
+  if (index === undefined) {
+    return null;
+  }
+
   return values[index]?.trim() || null;
 }
 
 export async function POST(request: NextRequest) {
   try {
-    if (!process.env.MAPPLS_ACCESS_TOKEN) {
-      return NextResponse.json({
-        error: "MAPPLS_ACCESS_TOKEN is not configured. The demo intentionally does not use mock geocoding."
-      }, { status: 500 });
+    if (!db) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "DATABASE_URL is not configured. Persistent uploads require PostgreSQL.",
+        },
+        { status: 503 },
+      );
     }
 
-    const mapplsAccess = await checkMapplsAccess();
-    if (!mapplsAccess.ok) {
-      return NextResponse.json({
-        error: `${mapplsAccess.error} Update MAPPLS_ACCESS_TOKEN with the static key from the Mappls Console credentials for this Web app, then restart the server.`
-      }, { status: 503 });
+    if (!process.env.MAPPLS_ACCESS_TOKEN) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "MAPPLS_ACCESS_TOKEN is not configured. Configure Mappls before uploading.",
+        },
+        { status: 500 },
+      );
     }
 
     const form = await request.formData();
     const file = form.get("file");
 
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: "Upload an .xlsx or .csv file." }, { status: 400 });
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Please upload an .xlsx, .xlsm, or .csv file.",
+        },
+        { status: 400 },
+      );
     }
 
     const maxMb = Number(process.env.MAX_UPLOAD_MB ?? 25);
+
+    if (file.size === 0) {
+      return NextResponse.json(
+        { success: false, error: "The uploaded file is empty." },
+        { status: 400 },
+      );
+    }
+
     if (file.size > maxMb * 1024 * 1024) {
-      return NextResponse.json({ error: `Maximum upload size is ${maxMb} MB.` }, { status: 400 });
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Maximum upload size is ${maxMb} MB.`,
+        },
+        { status: 400 },
+      );
     }
 
-    const isExcel = file.name.toLowerCase().endsWith(".xlsx");
-    const isCsv = file.name.toLowerCase().endsWith(".csv");
+    const filename = file.name;
+    const extension = filename.toLowerCase().split(".").pop();
 
-    if (!isExcel && !isCsv) {
-      return NextResponse.json({ error: "Only .xlsx and .csv files are supported." }, { status: 400 });
+    if (!["xlsx", "xlsm", "csv"].includes(extension ?? "")) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Only .xlsx, .xlsm, and .csv files are supported.",
+        },
+        { status: 400 },
+      );
     }
 
-    const rows = await readFile(await file.arrayBuffer(), file.name);
+    const rows = await readFile(await file.arrayBuffer(), filename);
+
+    if (rows.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "The uploaded file contains no non-empty rows.",
+        },
+        { status: 400 },
+      );
+    }
+
     const detected = detectMapping(rows);
-    const dataRows = detected.hasHeader ? rows.slice(1) : rows;
 
-    let inserted = 0;
-    let review = 0;
-    let unresolved = 0;
-    let errors = 0;
+    // Preserve the parser's actual row numbers.
+    const dataRows = detected.hasHeader
+      ? rows.filter((row) => row.rowNumber !== rows[0].rowNumber)
+      : rows;
 
-    for (const row of dataRows) {
-      const address = cell(row.values, detected.mapping.address);
-      if (!address) continue;
+    const queueRows = dataRows.reduce<QueueRowInput[]>((queue, row) => {
+        const address = cell(row.values, detected.mapping.address);
 
-      try {
-        const processed = await processRecord({
-          originalAddress: address,
-          phoneNumber: cell(row.values, detected.mapping.phone),
-          recipientName: cell(row.values, detected.mapping.recipientName),
-          sourceRowNumber: row.rowNumber,
-          sourceFileName: file.name
+        if (!address) {
+          return queue;
+        }
+
+        // Keep every original column, including columns not
+        // recognized by the automatic mapping.
+        const sourceRowData: Record<string, unknown> = {};
+
+        row.values.forEach((value, index) => {
+          const header = detected.hasHeader
+            ? detected.headers[index]?.trim()
+            : undefined;
+
+          const key = header || `column_${index + 1}`;
+
+          // Avoid overwriting duplicate or blank column names.
+          const uniqueKey =
+            sourceRowData[key] === undefined ? key : `${key}_${index + 1}`;
+
+          sourceRowData[uniqueKey] = value;
         });
 
-        if (db) {
-          await insertProcessed(processed);
-        } else {
-          addLocalRecord(processed);
-        }
+        queue.push({
+          sourceRowNumber: row.rowNumber,
+          originalAddress: address,
+          roSro: cell(row.values, detected.mapping.roSro),
+          branchOffice: cell(row.values, detected.mapping.branchOffice),
+          phoneNumber: cell(row.values, detected.mapping.phone),
+          recipientName: cell(row.values, detected.mapping.recipientName),
+          sourceFileName: filename,
+          sourceRowData,
+        });
 
-        inserted++;
-        if (processed.status === "review") review++;
-        if (processed.status === "unresolved") unresolved++;
-      } catch (error) {
-        errors++;
-        const failedRecord: Omit<LocationRecord, "id" | "created_at" | "updated_at"> = {
-          original_address: address,
-          full_address: null,
-          recipient_name: cell(row.values, detected.mapping.recipientName),
-          village_name: null,
-          landmark: null,
-          tehsil_taluka: null,
-          block_name: null,
-          district: null,
-          state: null,
-          post_office_name: null,
-          pin_code: null,
-          phone_number: cell(row.values, detected.mapping.phone),
-          latitude: null,
-          longitude: null,
-          normalization_provider: null,
-          geocode_provider: null,
-          confidence_score: 0,
-          status: "error",
-          error_message: error instanceof Error ? error.message : "Processing failed.",
-          source_row_number: row.rowNumber,
-          source_file_name: file.name
-        };
-        if (db) {
-          await insertProcessed(failedRecord);
-        } else {
-          addLocalRecord(failedRecord);
-        }
-        inserted++;
-      }
+        return queue;
+      }, []);
+
+    if (queueRows.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "No non-empty addresses were found in the detected address column.",
+          detectedHeaders: detected.headers,
+        },
+        { status: 400 },
+      );
     }
 
-    return NextResponse.json({
-      success: true,
-      file: file.name,
-      rowsRead: dataRows.length,
-      inserted,
-      review,
-      unresolved,
-      errors
+    // Create the job and persist its queue rows in PostgreSQL.
+    const job = await createUploadJob({
+      fileName: filename,
+      rows: queueRows,
     });
+
+    return NextResponse.json(
+      {
+        success: true,
+        message:
+          "File uploaded successfully. Rows have been queued for processing.",
+        job: {
+          id: job.id,
+          fileName: job.fileName,
+          status: job.status,
+          totalRows: job.totalRows,
+        },
+        rowsRead: dataRows.length,
+        addressesQueued: queueRows.length,
+        rowsWithoutAddress: dataRows.length - queueRows.length,
+        detectedColumns: {
+          address: detected.headers[detected.mapping.address] ?? null,
+          phone:
+            detected.mapping.phone === undefined
+              ? null
+              : detected.headers[detected.mapping.phone],
+          recipientName:
+            detected.mapping.recipientName === undefined
+              ? null
+              : detected.headers[detected.mapping.recipientName],
+          roSro:
+            detected.mapping.roSro === undefined
+              ? null
+              : detected.headers[detected.mapping.roSro],
+          branchOffice:
+            detected.mapping.branchOffice === undefined
+              ? null
+              : detected.headers[detected.mapping.branchOffice],
+        },
+      },
+      { status: 202 },
+    );
   } catch (error) {
-    return NextResponse.json({
-      error: error instanceof Error ? error.message : "Upload failed."
-    }, { status: 500 });
+    console.error("Upload staging failed:", error);
+
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to upload and queue the file.",
+      },
+      { status: 500 },
+    );
   }
 }

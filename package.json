@@ -5,10 +5,12 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "worker": "tsx scripts/run-worker.ts"
   },
   "dependencies": {
     "@google/genai": "^1.28.0",
+    "@next/env": "15.5.27",
     "exceljs": "^4.4.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.468.0",
@@ -25,6 +27,7 @@
     "@types/pg": "^8.23.1",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.2"
   }
 }

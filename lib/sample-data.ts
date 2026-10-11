@@ -37,6 +37,9 @@ async function loadSampleRecords(): Promise<LocationRecord[]> {
         district: null,
         state: null,
         post_office_name: null,
+        police_station_name: null,
+        ro_sro: null,
+        branch_office: null,
         pin_code: null,
         phone_number: phone,
         latitude: null,
@@ -45,11 +48,12 @@ async function loadSampleRecords(): Promise<LocationRecord[]> {
         geocode_provider: null,
         confidence_score: 0,
         status: "unresolved",
-        error_message: "Sample workbook record; not processed without database and Mappls configuration.",
+        error_message:
+          "Sample workbook record; not processed without database and Mappls configuration.",
         source_row_number: index + 1,
         source_file_name: "sample.xlsx",
         created_at: timestamp,
-        updated_at: timestamp
+        updated_at: timestamp,
       };
     });
 }
