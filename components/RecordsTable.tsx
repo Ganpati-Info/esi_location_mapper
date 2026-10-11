@@ -94,6 +94,7 @@ export default function RecordsTable() {
       return;
     }
 
+    const selectedDistrict = district;
     const controller = new AbortController();
 
     async function loadRecords() {
@@ -101,7 +102,7 @@ export default function RecordsTable() {
       setError("");
 
       const query = new URLSearchParams({
-        district,
+        district: selectedDistrict,
         limit: String(PAGE_SIZE),
         offset: String(offset),
       });
@@ -124,7 +125,7 @@ export default function RecordsTable() {
         // Fail closed if the API response is not for the selected district.
         if (
           !data.district ||
-          data.district.toLowerCase() !== district.toLowerCase()
+          data.district.toLowerCase() !== selectedDistrict.toLowerCase()
         ) {
           throw new Error(
             "The server returned an unexpected district. Records were not displayed.",

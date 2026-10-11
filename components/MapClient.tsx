@@ -322,6 +322,7 @@ export default function MapClient() {
       return;
     }
 
+    const selectedDistrict = district;
     const controller = new AbortController();
 
     async function loadFilterOptions() {
@@ -330,7 +331,7 @@ export default function MapClient() {
 
       try {
         const response = await fetch(
-          `/api/filters?district=${encodeURIComponent(district)}`,
+          `/api/filters?district=${encodeURIComponent(selectedDistrict)}`,
           {
             cache: "no-store",
             signal: controller.signal,
