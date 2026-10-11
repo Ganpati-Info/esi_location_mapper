@@ -2,15 +2,21 @@ import MapPageClient from "./MapPageClient";
 
 export default function MapPage() {
   return (
-    <main className="main">
-      <section className="hero">
+    <div className="workspace-page">
+      <section className="page-heading">
         <div>
-          <div className="eyebrow">Map</div>
-          <h1>Mapped locations</h1>
-          <p>Only records for which the geocoder returned coordinates are placed on the map.</p>
+          <div className="eyebrow">LOCATION INTELLIGENCE</div>
+
+          <h1>Map explorer</h1>
+
+          <p>
+            Search mapped addresses across West Bengal and inspect individual
+            location records.
+          </p>
         </div>
       </section>
+
       <MapPageClient />
-    </main>
+    </div>
   );
 }

@@ -93,6 +93,7 @@ function normalizedFromGeocode(result: any, address: string): NormalizedAddress 
     tehsil_taluka: clean(result?.subDistrict),
     block_name: null,
     district: clean(result?.district),
+    police_station_name: null,
     state: clean(result?.state),
     post_office_name: null,
     pin_code: clean(result?.pincode)?.match(/\b\d{6}\b/)?.[0] ?? null,
@@ -168,6 +169,7 @@ export async function mapplsNormalize(address: string): Promise<NormalizedAddres
     landmark: landmark ?? remaining,
     tehsil_taluka: subDistrict,
     block_name: block,
+    police_station_name: null,
     district,
     state,
     post_office_name: postOffice,
@@ -207,8 +209,19 @@ export async function mapplsGeocode(address: string, pinCode?: string | null) {
     throw new Error(`Mappls Geocode failed (${response.status}): ${body.slice(0, 300)}`);
   }
 
-  const data = await response.json();
-  const result = geocodeResult(data);
+const data = await response.json();
+
+console.log(
+  "[Mappls Geocode] Raw API response:",
+  JSON.stringify(data, null, 2),
+);
+
+const result = geocodeResult(data);
+
+console.log(
+  "[Mappls Geocode] Selected result:",
+  JSON.stringify(result, null, 2),
+);
 
   const latitude = Number(result?.latitude ?? result?.lat ?? result?.location?.lat);
   const longitude = Number(result?.longitude ?? result?.lng ?? result?.lon ?? result?.location?.lng);

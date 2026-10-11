@@ -15,7 +15,7 @@ import {
   Search,
   X,
 } from "lucide-react";
-
+import { districtHref } from "@/lib/districts";
 /* =========================================================
    TYPES
    ========================================================= */
@@ -590,23 +590,25 @@ function DistrictCard({
   const cardStyle = {
     "--district-accent": color,
     "--card-index": index,
-  } as CSSProperties;
+  } as React.CSSProperties;
+
+  // Selecting a district opens its dashboard.
+  // The canonical district name is preserved in the URL.
+  const dashboardUrl = districtHref("/dashboard", district.name);
 
   return (
     <Link
-      href={`/map?district=${encodeURIComponent(district.name)}`}
+      href={dashboardUrl}
       className="district-card"
       style={cardStyle}
-      aria-label={`Explore ${district.name} district`}
+      aria-label={`Open ${district.name} district dashboard`}
     >
       <div className="district-card-top">
         <span className="district-card-number">
           {String(index + 1).padStart(2, "0")}
         </span>
 
-        <span className="district-card-region">
-          {district.region}
-        </span>
+        <span className="district-card-region">{district.region}</span>
       </div>
 
       <div className="district-card-map">
@@ -615,9 +617,7 @@ function DistrictCard({
 
         <DistrictMap feature={feature} color={color} />
 
-        <span className="district-map-caption">
-          WEST BENGAL
-        </span>
+        <span className="district-map-caption">WEST BENGAL</span>
       </div>
 
       <div className="district-card-content">
@@ -634,11 +634,12 @@ function DistrictCard({
         <div className="district-card-footer">
           <span>
             <MapPin size={13} />
-            District explorer
+            District workspace
           </span>
 
           <span className="district-card-open">
-            Explore <ArrowRight size={14} />
+            Open dashboard
+            <ArrowRight size={14} />
           </span>
         </div>
       </div>

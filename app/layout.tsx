@@ -1,53 +1,33 @@
 import "./globals.css";
+import "leaflet/dist/leaflet.css";
+
 import type { Metadata } from "next";
-import Link from "next/link";
-import { ArrowUpRight, MapPinned } from "lucide-react";
+import { Suspense } from "react";
+import AppShell from "@/components/AppShell";
 
 export const metadata: Metadata = {
-  title: "Location Connect | West Bengal District Explorer",
+  title: "Location Connect | West Bengal",
   description:
-    "Explore West Bengal's 23 districts through Location Connect, a geographic exploration and location data platform.",
+    "Explore district-wise location data, plotting coverage, and address intelligence across West Bengal.",
 };
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <html lang="en">
       <body>
-        <header className="topbar">
-          <Link className="brand brand-new" href="/">
-            <span className="brand-symbol">
-              <MapPinned size={21} strokeWidth={2} />
-            </span>
-
-            <span className="brand-copy">
-              <strong>
-                location<span>connect</span>
-              </strong>
-              <small>WEST BENGAL</small>
-            </span>
-          </Link>
-
-          {/* <nav className="nav nav-new">
-            <Link className="nav-active" href="/">
-              Districts
-            </Link>
-
-            <Link href="/map">Map explorer</Link>
-
-            <Link href="/records">Records</Link>
-
-            <Link href="/upload" className="nav-upload">
-              Data management
-              <ArrowUpRight size={15} />
-            </Link>
-          </nav> */}
-        </header>
-
-        {children}
+        <Suspense
+          fallback={
+            <div className="app-loading">
+              Loading Location Connect...
+            </div>
+          }
+        >
+          <AppShell>{children}</AppShell>
+        </Suspense>
       </body>
     </html>
   );
