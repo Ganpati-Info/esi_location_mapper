@@ -4,12 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   CircleMarker,
+  GeoJSON,
   MapContainer,
+  Marker,
   Popup,
   TileLayer,
   useMap,
   useMapEvents,
 } from "react-leaflet";
+import L from "leaflet";
 import {
   AlertCircle,
   Filter,
@@ -47,6 +50,177 @@ type MapPoint = {
   estimated_count?: number | string;
   review_count?: number | string;
 };
+
+/* =========================================================
+   DISTRICT BOUNDARY HIGHLIGHT
+   ========================================================= */
+
+type DistrictFeature = {
+  type: "Feature";
+  properties: Record<string, unknown>;
+  geometry: {
+    type: "Polygon" | "MultiPolygon";
+    coordinates: unknown;
+  };
+};
+
+type DistrictFeatureCollection = {
+  type: "FeatureCollection";
+  features: DistrictFeature[];
+};
+
+const DISTRICT_BOUNDARIES_URL =
+  "https://cdn.jsdelivr.net/gh/udit-001/india-maps-data@2884453/geojson/states/west-bengal.geojson";
+
+function normalizeDistrictName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function getBoundaryDistrictName(feature: DistrictFeature): string {
+  const properties = feature.properties;
+
+  const possibleKeys = [
+    "district",
+    "DISTRICT",
+    "District",
+    "district_name",
+    "DISTRICT_NAME",
+    "name",
+    "NAME",
+    "name_2",
+    "NAME_2",
+    "dtname",
+    "DTNAME",
+  ];
+
+  for (const key of possibleKeys) {
+    const value = properties[key];
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return "";
+}
+
+function DistrictBoundaryLayer({
+  district,
+}: {
+  district: string;
+}) {
+  const [boundaries, setBoundaries] =
+    useState<DistrictFeatureCollection | null>(null);
+
+  const [boundaryError, setBoundaryError] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadBoundaries() {
+      try {
+        const response = await fetch(DISTRICT_BOUNDARIES_URL, {
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error("Unable to load district boundaries.");
+        }
+
+        const data =
+          (await response.json()) as DistrictFeatureCollection;
+
+        if (!Array.isArray(data.features)) {
+          throw new Error("Invalid district boundary data.");
+        }
+
+        setBoundaries(data);
+        setBoundaryError(false);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+
+        console.error("District boundary loading failed:", error);
+        setBoundaryError(true);
+      }
+    }
+
+    void loadBoundaries();
+
+    return () => controller.abort();
+  }, []);
+
+  const normalize = normalizeDistrictName;
+
+  const aliases: Record<string, string[]> = {
+    "coochbehar": ["kochbihar", "kochbehar"],
+    "dakshindinajpur": ["southdinajpur"],
+    "uttardinajpur": ["northdinajpur"],
+    "paschimmedinipur": ["westmedinipur"],
+    "purbamedinipur": ["eastmedinipur"],
+    "paschimbardhaman": ["westbardhaman", "paschimburdwan"],
+    "purbabardhaman": ["eastbardhaman", "purbaburdwan"],
+  };
+
+  const selectedName = normalize(district);
+
+  const selectedAliases = aliases[selectedName] ?? [];
+
+  const matchesSelectedDistrict = (feature: DistrictFeature) => {
+    const featureName = normalize(getBoundaryDistrictName(feature));
+
+    return (
+      featureName === selectedName ||
+      selectedAliases.includes(featureName)
+    );
+  };
+
+  if (!boundaries) {
+    return null;
+  }
+
+  if (boundaryError) {
+    return null;
+  }
+
+  return (
+    <>
+      {/* Surrounding districts: subtle boundaries */}
+      <GeoJSON
+        key="west-bengal-district-background"
+        data={boundaries as never}
+        style={() => ({
+          color: "#94A3B8",
+          weight: 1.2,
+          opacity: 0.9,
+          fillColor: "#E2E8F0",
+          fillOpacity: 0.12,
+        })}
+        interactive={false}
+      />
+
+      {/* Selected district: prominent highlight */}
+      {boundaries.features
+        .filter(matchesSelectedDistrict)
+        .map((feature, index) => (
+          <GeoJSON
+            key={`${selectedName}-${index}`}
+            data={feature as never}
+            style={() => ({
+              color: "#6D28D9",
+              weight: 3,
+              opacity: 1,
+              fillColor: "#8B5CF6",
+              fillOpacity: 0.24,
+            })}
+            interactive={false}
+          />
+        ))}
+    </>
+  );
+}
 
 type Viewport = {
   west: number;
@@ -106,6 +280,23 @@ const INITIAL_VIEWPORT: Viewport = {
   north: 27.5,
   zoom: 7,
 };
+
+// Manually placed hospitals.
+// Later, these can be loaded from a database or API.
+
+const MANUAL_HOSPITALS = [
+  {
+    id: "hospital-central-tarapur",
+    name: "Central Hospital, Tarapur",
+    address: "Tarapur, Dhuliyan, Murshidabad, West Bengal",
+    latitude: 24.6734219,
+    longitude: 87.9313289,
+    type: "Hospital",
+    district: "Murshidabad",
+    color: "#7C3AED",
+    source: "Google Maps",
+  },
+];
 
 const numberFormat = new Intl.NumberFormat("en-IN");
 
@@ -240,6 +431,39 @@ function FitToPoints({
 
   return null;
 }
+
+const hospitalIcon = L.divIcon({
+  className: "hospital-map-icon-wrapper",
+
+  html: `
+    <div class="hospital-map-icon" title="Central Hospital, Tarapur">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="32"
+        height="32"
+        viewBox="0 0 32 32"
+        aria-hidden="true"
+      >
+        <path
+          d="M16 2 L16 2
+             C8.3 2 3 7.7 3 14.5
+             C3 23 16 30 16 30
+             C16 30 29 23 29 14.5
+             C29 7.7 23.7 2 16 2Z"
+          fill="#DC2626"
+          stroke="#FFFFFF"
+          stroke-width="2"
+        />
+        <rect x="13" y="7" width="6" height="15" rx="1" fill="#FFFFFF"/>
+        <rect x="8.5" y="11.5" width="15" height="6" rx="1" fill="#FFFFFF"/>
+      </svg>
+    </div>
+  `,
+
+  iconSize: [38, 42],
+  iconAnchor: [19, 40],
+  popupAnchor: [0, -38],
+});
 
 /* =========================================================
    MAIN MAP COMPONENT
@@ -699,6 +923,79 @@ export default function MapClient() {
                 }
               />
 
+              <DistrictBoundaryLayer district={district} />
+
+              {district.trim().toLowerCase() === "murshidabad" && (
+                <Marker
+                  position={[24.6734219, 87.9313289]}
+                  icon={hospitalIcon}
+                  zIndexOffset={10000}
+                  eventHandlers={{
+                    click: () => {
+                      setSelected(null);
+                    },
+                  }}
+                >
+                  <Popup>
+                    <div style={{ minWidth: 210 }}>
+                      <div
+                        style={{
+                          display: "inline-block",
+                          padding: "4px 8px",
+                          borderRadius: 6,
+                          background: "#FEE2E2",
+                          color: "#B91C1C",
+                          fontSize: 11,
+                          fontWeight: 800,
+                          letterSpacing: "0.06em",
+                          marginBottom: 8,
+                        }}
+                      >
+                        HOSPITAL
+                      </div>
+
+                      <h3
+                        style={{
+                          margin: "0 0 6px",
+                          fontSize: 15,
+                          fontWeight: 700,
+                        }}
+                      >
+                        Central Hospital, Tarapur
+                      </h3>
+
+                      <p style={{ margin: "0 0 10px", fontSize: 13 }}>
+                        Tarapur, Dhuliyan, Murshidabad, West Bengal
+                      </p>
+
+                      <div style={{ fontSize: 12, lineHeight: 1.8 }}>
+                        <div>
+                          <strong>Latitude:</strong> 24.6734219
+                        </div>
+                        <div>
+                          <strong>Longitude:</strong> 87.9313289
+                        </div>
+                      </div>
+
+                      <a
+                        href="https://www.google.com/maps/place/Central+hospital+tarapur+Dhuliyan/@24.6793543,87.9335008,14.76z/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: "inline-block",
+                          marginTop: 10,
+                          color: "#B91C1C",
+                          fontWeight: 700,
+                          fontSize: 13,
+                        }}
+                      >
+                        Open in Google Maps ↗
+                      </a>
+                    </div>
+                  </Popup>
+                </Marker>
+              )}
+
               <FitToPoints points={points} enabled={dataLoaded} />
 
               <ViewportReporter
@@ -775,6 +1072,86 @@ export default function MapClient() {
                   </CircleMarker>
                 );
               })}
+
+              {/* Manually placed hospital markers */}
+              {MANUAL_HOSPITALS.filter(
+                (hospital) =>
+                  hospital.district.toLowerCase() === district.toLowerCase(),
+              ).map((hospital) => (
+                <CircleMarker
+                  key={hospital.id}
+                  center={[hospital.latitude, hospital.longitude]}
+                  radius={10}
+                  pathOptions={{
+                    color: "#581C87",
+                    fillColor: hospital.color,
+                    fillOpacity: 1,
+                    weight: 3,
+                  }}
+                >
+                  <Popup>
+                    <div style={{ minWidth: 210 }}>
+                      <div
+                        style={{
+                          display: "inline-block",
+                          background: "#F3E8FF",
+                          color: "#6B21A8",
+                          padding: "4px 8px",
+                          borderRadius: 6,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          marginBottom: 8,
+                        }}
+                      >
+                        HOSPITAL
+                      </div>
+
+                      <h3
+                        style={{
+                          margin: "0 0 6px",
+                          fontSize: 14,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {hospital.name}
+                      </h3>
+
+                      <p style={{ margin: "0 0 8px", fontSize: 12 }}>
+                        {hospital.address}
+                      </p>
+
+                      <div style={{ fontSize: 12, lineHeight: 1.8 }}>
+                        <div>
+                          <strong>Latitude:</strong> {hospital.latitude}
+                        </div>
+
+                        <div>
+                          <strong>Longitude:</strong> {hospital.longitude}
+                        </div>
+
+                        <div>
+                          <strong>Type:</strong> {hospital.type}
+                        </div>
+                      </div>
+
+                      <a
+                        href="https://www.google.com/maps/place/Central+hospital+tarapur+Dhuliyan/@24.6793543,87.9335008,14.76z/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: "inline-block",
+                          marginTop: 10,
+                          color: "#7C3AED",
+                          fontWeight: 600,
+                          fontSize: 12,
+                        }}
+                      >
+                        Open in Google Maps ↗
+                      </a>
+                    </div>
+                  </Popup>
+                </CircleMarker>
+              ))}
             </MapContainer>
 
             <div className="map-legend">
