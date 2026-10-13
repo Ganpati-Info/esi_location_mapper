@@ -348,7 +348,7 @@ function DistrictMap({
 
   return (
     <svg
-      viewBox="0 0 200 160"
+      viewBox="0 0 200 200"
       className="district-map-svg"
       aria-hidden="true"
     >
@@ -419,8 +419,8 @@ function WestBengalArtwork({
   const width = maxX - minX || 1;
   const height = maxY - minY || 1;
 
-  const viewWidth = 260;
-  const viewHeight = 340;
+  const viewWidth = 360;
+  const viewHeight = 440;
   const padding = 15;
 
   const scale = Math.min(
@@ -608,16 +608,16 @@ function DistrictCard({
           {String(index + 1).padStart(2, "0")}
         </span>
 
-        <span className="district-card-region">{district.region}</span>
+        {/* <span className="district-card-region">{district.region}</span> */}
       </div>
 
       <div className="district-card-map">
-        <div className="district-card-map-decoration decoration-one" />
-        <div className="district-card-map-decoration decoration-two" />
+        {/* <div className="district-card-map-decoration decoration-one" />
+        <div className="district-card-map-decoration decoration-two" /> */}
 
         <DistrictMap feature={feature} color={color} />
 
-        <span className="district-map-caption">WEST BENGAL</span>
+        {/* <span className="district-map-caption">WEST BENGAL</span> */}
       </div>
 
       <div className="district-card-content">
@@ -629,7 +629,7 @@ function DistrictCard({
           </span>
         </div>
 
-        <p>{district.description}</p>
+        {/* <p>{district.description}</p>
 
         <div className="district-card-footer">
           <span>
@@ -641,7 +641,7 @@ function DistrictCard({
             Open dashboard
             <ArrowRight size={14} />
           </span>
-        </div>
+        </div> */}
       </div>
     </Link>
   );
@@ -737,12 +737,12 @@ export default function DistrictExplorer() {
 
         <div className="district-hero-inner">
           <div className="district-hero-copy">
-            <div className="district-eyebrow">
+            {/* <div className="district-eyebrow">
               <span className="district-eyebrow-dot" />
               LOCATION CONNECT
               <span className="district-eyebrow-divider">/</span>
               WEST BENGAL
-            </div>
+            </div> */}
 
             <h1>
               Every district.
@@ -751,12 +751,12 @@ export default function DistrictExplorer() {
             </h1>
 
             <p className="district-hero-description">
-              Explore West Bengal, district by district.
+              Explore Addresses, district by district.
               Discover geographic coverage and access
               location information from one place.
             </p>
 
-            <div className="district-hero-meta">
+            {/* <div className="district-hero-meta">
               <div className="district-meta-item">
                 <span className="district-meta-number">23</span>
                 <span>Districts</span>
@@ -768,7 +768,7 @@ export default function DistrictExplorer() {
                 <span className="district-meta-number">01</span>
                 <span>Connected state</span>
               </div>
-            </div>
+            </div> */}
           </div>
 
           {/* REAL GEOGRAPHIC ARTWORK */}
@@ -802,10 +802,10 @@ export default function DistrictExplorer() {
           </div>
         </div>
 
-        <div className="district-hero-bottom">
+        {/* <div className="district-hero-bottom">
           <span>GEOGRAPHY · DISCOVERY · CONNECTIVITY</span>
           <ArrowDownRight size={17} />
-        </div>
+        </div> */}
       </section>
 
       {/* DISTRICT DIRECTORY */}
@@ -813,9 +813,9 @@ export default function DistrictExplorer() {
       <section className="district-content">
         <div className="district-section-heading">
           <div>
-            <div className="district-section-eyebrow">
+            {/* <div className="district-section-eyebrow">
               EXPLORE THE STATE
-            </div>
+            </div> */}
 
             <h2>
               Find your <span>district.</span>
@@ -827,13 +827,13 @@ export default function DistrictExplorer() {
             </p>
           </div>
 
-          <div className="district-heading-count">
+          {/* <div className="district-heading-count">
             <strong>
               {String(filteredDistricts.length).padStart(2, "0")}
             </strong>
 
             <span>OF {DISTRICTS.length} DISTRICTS</span>
-          </div>
+          </div> */}
         </div>
 
         {/* SEARCH */}
@@ -900,7 +900,7 @@ export default function DistrictExplorer() {
 
         {/* BOTTOM BANNER */}
 
-        <div className="district-bottom-banner">
+        {/* <div className="district-bottom-banner">
           <div className="district-bottom-icon">
             <MapPin size={21} />
           </div>
@@ -919,13 +919,13 @@ export default function DistrictExplorer() {
           <span className="district-bottom-mark">
             LC / WB
           </span>
-        </div>
+        </div> */}
 
         {/* FOOTER */}
 
         <footer className="district-footer">
           <span>
-            © {new Date().getFullYear()} Location Connect
+            © {new Date().getFullYear()} ESI(MB) Location Connect
           </span>
 
           <span>MADE FOR WEST BENGAL</span>

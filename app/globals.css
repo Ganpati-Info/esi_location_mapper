@@ -225,7 +225,7 @@
   max-width: 480px;
   margin: 0;
   color: #bdc6bd;
-  font-size: 15px;
+  font-size: 20px;
   line-height: 1.9;
 }
 
@@ -398,7 +398,7 @@
 .district-section-heading h2 {
   margin: 0;
   color: #242a25;
-  font-size: clamp(32px, 4vw, 46px);
+  font-size: clamp(42px, 4vw, 46px);
   font-weight: 700;
   letter-spacing: -2px;
   line-height: 1.15;
@@ -411,7 +411,7 @@
 .district-section-heading p {
   margin: 13px 0 0;
   color: #777e76;
-  font-size: 13px;
+  font-size: 16px;
   line-height: 1.7;
 }
 
@@ -554,6 +554,7 @@
     border-color 220ms ease;
   animation: district-card-appear 450ms both;
   animation-delay: calc(var(--card-index, 0) * 18ms);
+  text-decoration: none;
 }
 
 .district-card:hover {
@@ -577,9 +578,9 @@
 
 .district-card-number {
   color: #a1a59d;
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 800;
-  letter-spacing: 1px;
+  text-decoration: none;
 }
 
 .district-card-region {
@@ -603,7 +604,8 @@
   position: relative;
   display: grid;
   place-items: center;
-  height: 153px;
+  height: auto;
+  aspect-ratio: 1 / 1;
   margin: 8px 10px 0;
   overflow: hidden;
   background: #f8f7f3;
@@ -659,10 +661,13 @@
 }
 
 .district-map-svg {
+  box-sizing: border-box;
   display: block;
   width: 100%;
   height: 100%;
-  padding: 8px;
+  object-fit: contain;
+  object-position: center;
+  padding: 2px;
   overflow: visible;
   transition: transform 300ms ease;
 }
@@ -710,9 +715,8 @@
 .district-card-title-row h3 {
   margin: 0;
   color: #293029;
-  font-size: 15px;
+  font-size: 20px;
   font-weight: 750;
-  letter-spacing: -0.35px;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
@@ -883,9 +887,8 @@
   gap: 16px;
   padding: 25px 0 10px;
   color: #989c94;
-  font-size: 9px;
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: 0.8px;
 }
 
 /* Animations */
@@ -918,10 +921,6 @@
 @media (min-width: 1600px) {
   .district-grid {
     gap: 20px;
-  }
-
-  .district-card-map {
-    height: 170px;
   }
 
   .district-card-content {
@@ -1128,7 +1127,8 @@
   }
 
   .district-card-map {
-    height: 125px;
+    height: auto;
+    aspect-ratio: 1 / 1;
     margin: 8px 7px 0;
   }
 
@@ -1185,7 +1185,8 @@
   }
 
   .district-card-map {
-    height: 165px;
+    height: auto;
+    aspect-ratio: 1 / 1;
   }
 
   .district-card-footer {
@@ -8026,5 +8027,68 @@ textarea {
 @media (prefers-reduced-motion: reduce) {
   .hospital-map-icon {
     transition: none;
+  }
+}
+
+.location-pin-icon-wrapper {
+  background: transparent !important;
+  border: 0 !important;
+}
+
+.location-pin-icon {
+  display: block;
+  cursor: pointer;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 35%));
+  transform-origin: 50% 100%;
+  transition: filter 120ms ease;
+}
+
+.location-pin-icon:hover {
+  filter: drop-shadow(0 2px 4px rgb(0 0 0 / 45%));
+}
+
+.leaflet-tooltip {
+  max-width: 280px;
+  white-space: normal;
+  line-height: 1.5;
+  z-index: 1000;
+}
+
+/* Fix location marker tooltip overflow */
+.leaflet-tooltip {
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 48px));
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  line-height: 1.5;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  z-index: 1000;
+}
+
+/* Keep tooltip content within its box */
+.leaflet-tooltip strong,
+.leaflet-tooltip span,
+.leaflet-tooltip div {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+/* Prevent the tooltip arrow from affecting layout */
+.leaflet-tooltip-top::before {
+  bottom: -6px;
+}
+
+/* Mobile screens */
+@media (max-width: 480px) {
+  .leaflet-tooltip {
+    max-width: calc(100vw - 48px);
+    font-size: 11px;
+    padding: 7px 9px;
   }
 }

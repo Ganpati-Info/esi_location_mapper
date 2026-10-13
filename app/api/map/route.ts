@@ -8,7 +8,9 @@ export const dynamic = "force-dynamic";
 
 const MAX_MAP_POINTS = 1500;
 const MAX_CLUSTER_POINTS = 3000;
-const INDIVIDUAL_POINT_ZOOM = 14;
+const MAX_CLUSTER_SOURCE_ROWS = 50000;
+const CLUSTER_RADIUS_KM = 20;
+const INDIVIDUAL_POINT_ZOOM = 10;
 
 const WEST_BENGAL_BOUNDS = {
   west: 85.4,
@@ -149,20 +151,6 @@ function buildWhereClause(
     values,
     add,
   };
-}
-
-/**
- * Select how aggressively to cluster records.
- *
- * Rounded coordinates are grid cells for visualization,
- * not verified geographic locations.
- */
-function getClusterPrecision(zoom: number): number {
-  if (zoom <= 5) return 1;
-  if (zoom <= 7) return 2;
-  if (zoom <= 9) return 3;
-
-  return 4;
 }
 
 function jsonError(message: string, status: number) {
@@ -310,134 +298,112 @@ export async function GET(request: NextRequest) {
     }
 
     /*
-     * LOWER ZOOM:
-     * Aggregate records into coordinate grid cells.
-     *
-     * This keeps the response smaller than returning
-     * thousands of overlapping markers.
+     * LOWER ZOOM: fixed-centre geographic clusters. Every record assigned
+     * to a cluster is within 20 km of that cluster's centre. We cap source
+     * rows to protect the API; hasMore warns when the viewport exceeds cap.
      */
-    const precision = getClusterPrecision(zoom);
-
-    const precisionParameter = add(precision);
-
-    const limitParameter = add(MAX_CLUSTER_POINTS + 1);
-
+    const sourceLimit = add(MAX_CLUSTER_SOURCE_ROWS + 1);
     const result = await db.query(
-      `
-        SELECT
-          MIN(id)::text AS id,
-
-          district,
-
-          AVG(latitude)::double precision
-            AS latitude,
-
-          AVG(longitude)::double precision
-            AS longitude,
-
-          COUNT(*)::integer
-            AS count,
-
-          COUNT(*) FILTER (
-            WHERE geocode_provider
-              LIKE 'gemini-estimate-unverified%'
-          )::integer AS estimated_count,
-
-          COUNT(*) FILTER (
-            WHERE status = 'review'
-          )::integer AS review_count,
-
-          CASE
-            WHEN COUNT(DISTINCT block_name) = 1
-            THEN MIN(block_name)
-            ELSE NULL
-          END AS block_name,
-
-          CASE
-            WHEN COUNT(DISTINCT tehsil_taluka) = 1
-            THEN MIN(tehsil_taluka)
-            ELSE NULL
-          END AS tehsil_taluka,
-
-          CASE
-            WHEN COUNT(DISTINCT branch_office) = 1
-            THEN MIN(branch_office)
-            ELSE NULL
-          END AS branch_office,
-
-          CASE
-            WHEN COUNT(DISTINCT post_office_name) = 1
-            THEN MIN(post_office_name)
-            ELSE NULL
-          END AS post_office_name,
-
-          CASE
-            WHEN COUNT(DISTINCT ro_sro) = 1
-            THEN MIN(ro_sro)
-            ELSE NULL
-          END AS ro_sro,
-
-          CASE
-            WHEN COUNT(DISTINCT village_name) = 1
-            THEN MIN(village_name)
-            ELSE NULL
-          END AS village_name,
-
-          CASE
-            WHEN COUNT(DISTINCT status) = 1
-            THEN MIN(status)
-            ELSE 'mixed'
-          END AS status,
-
-          CASE
-            WHEN COUNT(*) FILTER (
-              WHERE geocode_provider
-                LIKE 'gemini-estimate-unverified%'
-            ) > 0
-            THEN 'gemini-estimate-unverified:cluster'
-            ELSE 'cluster'
-          END AS geocode_provider,
-
-          AVG(confidence_score)::double precision
-            AS confidence_score
-
-        FROM location_records
-
-        WHERE ${whereSql}
-
-        GROUP BY
-          district,
-          ROUND(latitude::numeric, ${precisionParameter}),
-          ROUND(longitude::numeric, ${precisionParameter})
-
-        ORDER BY COUNT(*) DESC
-
-        LIMIT ${limitParameter}
-      `,
+      `SELECT
+         id::text AS id, original_address, full_address, village_name, landmark,
+         block_name, tehsil_taluka, police_station_name, branch_office,
+         post_office_name, ro_sro, district, state, latitude, longitude,
+         status, geocode_provider, confidence_score
+       FROM location_records
+       WHERE ${whereSql}
+       ORDER BY id
+       LIMIT ${sourceLimit}`,
       values,
     );
 
-    const hasMore = result.rows.length > MAX_CLUSTER_POINTS;
+    const sourceHasMore = result.rows.length > MAX_CLUSTER_SOURCE_ROWS;
+    const sourceRows = result.rows.slice(0, MAX_CLUSTER_SOURCE_ROWS) as Array<Record<string, any>>;
+    const radians = (degrees: number) => degrees * Math.PI / 180;
+    const distanceKm = (aLat: number, aLng: number, bLat: number, bLng: number) => {
+      const dLat = radians(bLat - aLat);
+      const dLng = radians(bLng - aLng);
+      const h = Math.sin(dLat / 2) ** 2 + Math.cos(radians(aLat)) * Math.cos(radians(bLat)) * Math.sin(dLng / 2) ** 2;
+      return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(0, 1 - h)));
+    };
 
-    const points = result.rows.slice(0, MAX_CLUSTER_POINTS);
+    type Cluster = {
+      id: string; district: string; latitude: number; longitude: number; count: number;
+      estimated_count: number; review_count: number; status: string; geocode_provider: string;
+      confidence_score: number | null; block_name: string | null; tehsil_taluka: string | null;
+      branch_office: string | null; post_office_name: string | null; ro_sro: string | null;
+      village_name: string | null;
+    };
+    const clusters: Cluster[] = [];
+    // 20 km is about 0.18 degrees latitude; spatial buckets reduce comparisons.
+    const bucketSize = 0.18;
+    const buckets = new Map<string, number[]>();
+    const bucketKey = (lat: number, lng: number) => `${Math.floor(lat / bucketSize)}:${Math.floor(lng / bucketSize)}`;
 
+    for (const row of sourceRows) {
+      const lat = Number(row.latitude);
+      const lng = Number(row.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      const by = Math.floor(lat / bucketSize);
+      const bx = Math.floor(lng / bucketSize);
+      let match: Cluster | undefined;
+      for (let dy = -2; dy <= 2 && !match; dy++) {
+        for (let dx = -2; dx <= 2 && !match; dx++) {
+          for (const idx of buckets.get(`${by + dy}:${bx + dx}`) ?? []) {
+            const candidate = clusters[idx];
+            if (distanceKm(lat, lng, candidate.latitude, candidate.longitude) <= CLUSTER_RADIUS_KM) {
+              match = candidate;
+              break;
+            }
+          }
+        }
+      }
+      if (!match) {
+        const cluster: Cluster = {
+          id: `cluster:${lat.toFixed(6)}:${lng.toFixed(6)}`,
+          district: String(row.district ?? district), latitude: lat, longitude: lng, count: 0,
+          estimated_count: 0, review_count: 0, status: String(row.status ?? 'mixed'),
+          geocode_provider: 'cluster', confidence_score: null,
+          block_name: null, tehsil_taluka: null, branch_office: null, post_office_name: null,
+          ro_sro: null, village_name: null,
+        };
+        clusters.push(cluster);
+        const idx = clusters.length - 1;
+        const key = bucketKey(lat, lng);
+        buckets.set(key, [...(buckets.get(key) ?? []), idx]);
+        match = cluster;
+      }
+      match.count++;
+      if (String(row.geocode_provider ?? '').startsWith('gemini-estimate-unverified')) match.estimated_count++;
+      if (String(row.status ?? '').toLowerCase() === 'review') match.review_count++;
+      if (match.count === 1) {
+        match.status = String(row.status ?? 'mapped');
+        match.geocode_provider = String(row.geocode_provider ?? 'cluster');
+        match.confidence_score = row.confidence_score == null ? null : Number(row.confidence_score);
+        match.block_name = row.block_name ?? null;
+        match.tehsil_taluka = row.tehsil_taluka ?? null;
+        match.branch_office = row.branch_office ?? null;
+        match.post_office_name = row.post_office_name ?? null;
+        match.ro_sro = row.ro_sro ?? null;
+        match.village_name = row.village_name ?? null;
+      } else {
+        if (match.status !== String(row.status ?? 'mapped')) match.status = 'mixed';
+        if (String(row.geocode_provider ?? '').startsWith('gemini-estimate-unverified')) match.geocode_provider = 'gemini-estimate-unverified:cluster';
+        if (match.block_name !== (row.block_name ?? null)) match.block_name = null;
+        if (match.tehsil_taluka !== (row.tehsil_taluka ?? null)) match.tehsil_taluka = null;
+        if (match.branch_office !== (row.branch_office ?? null)) match.branch_office = null;
+        if (match.post_office_name !== (row.post_office_name ?? null)) match.post_office_name = null;
+        if (match.ro_sro !== (row.ro_sro ?? null)) match.ro_sro = null;
+        if (match.village_name !== (row.village_name ?? null)) match.village_name = null;
+      }
+    }
+
+    clusters.sort((a, b) => b.count - a.count);
+    const points = clusters.slice(0, MAX_CLUSTER_POINTS);
     return NextResponse.json(
-      {
-        success: true,
-        district,
-        mode: "clusters",
-        precision,
-        points,
-        returned: points.length,
-        hasMore,
-        maxPoints: MAX_CLUSTER_POINTS,
-        viewport: bounds,
-      },
-      {
-        headers: {
-          "Cache-Control": "private, no-store",
-        },
-      },
+      { success: true, district, mode: "clusters", clusterRadiusKm: CLUSTER_RADIUS_KM,
+        points, returned: points.length, hasMore: sourceHasMore || clusters.length > MAX_CLUSTER_POINTS,
+        maxPoints: MAX_CLUSTER_POINTS, sourceRowsProcessed: sourceRows.length, viewport: bounds },
+      { headers: { "Cache-Control": "private, no-store" } },
     );
   } catch (error) {
     console.error(`Map query failed for district ${district}:`, error);
