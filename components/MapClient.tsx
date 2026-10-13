@@ -9,6 +9,7 @@ import {
   Marker,
   Popup,
   TileLayer,
+  Tooltip,
   useMap,
   useMapEvents,
 } from "react-leaflet";
@@ -49,6 +50,7 @@ type MapPoint = {
   count?: number | string;
   estimated_count?: number | string;
   review_count?: number | string;
+  cluster_radius_km?: number;
 };
 
 /* =========================================================
@@ -79,6 +81,24 @@ function normalizeDistrictName(value: string) {
     .replace(/[^a-z0-9]/g, "");
 }
 
+function MapZoomTracker({
+  onZoomChange,
+}: {
+  onZoomChange: (zoom: number) => void;
+}) {
+  const map = useMapEvents({
+    zoomend() {
+      onZoomChange(map.getZoom());
+    },
+  });
+
+  useEffect(() => {
+    onZoomChange(map.getZoom());
+  }, [map, onZoomChange]);
+
+  return null;
+}
+
 function getBoundaryDistrictName(feature: DistrictFeature): string {
   const properties = feature.properties;
 
@@ -107,11 +127,7 @@ function getBoundaryDistrictName(feature: DistrictFeature): string {
   return "";
 }
 
-function DistrictBoundaryLayer({
-  district,
-}: {
-  district: string;
-}) {
+function DistrictBoundaryLayer({ district }: { district: string }) {
   const [boundaries, setBoundaries] =
     useState<DistrictFeatureCollection | null>(null);
 
@@ -130,8 +146,7 @@ function DistrictBoundaryLayer({
           throw new Error("Unable to load district boundaries.");
         }
 
-        const data =
-          (await response.json()) as DistrictFeatureCollection;
+        const data = (await response.json()) as DistrictFeatureCollection;
 
         if (!Array.isArray(data.features)) {
           throw new Error("Invalid district boundary data.");
@@ -155,13 +170,13 @@ function DistrictBoundaryLayer({
   const normalize = normalizeDistrictName;
 
   const aliases: Record<string, string[]> = {
-    "coochbehar": ["kochbihar", "kochbehar"],
-    "dakshindinajpur": ["southdinajpur"],
-    "uttardinajpur": ["northdinajpur"],
-    "paschimmedinipur": ["westmedinipur"],
-    "purbamedinipur": ["eastmedinipur"],
-    "paschimbardhaman": ["westbardhaman", "paschimburdwan"],
-    "purbabardhaman": ["eastbardhaman", "purbaburdwan"],
+    coochbehar: ["kochbihar", "kochbehar"],
+    dakshindinajpur: ["southdinajpur"],
+    uttardinajpur: ["northdinajpur"],
+    paschimmedinipur: ["westmedinipur"],
+    purbamedinipur: ["eastmedinipur"],
+    paschimbardhaman: ["westbardhaman", "paschimburdwan"],
+    purbabardhaman: ["eastbardhaman", "purbaburdwan"],
   };
 
   const selectedName = normalize(district);
@@ -172,8 +187,7 @@ function DistrictBoundaryLayer({
     const featureName = normalize(getBoundaryDistrictName(feature));
 
     return (
-      featureName === selectedName ||
-      selectedAliases.includes(featureName)
+      featureName === selectedName || selectedAliases.includes(featureName)
     );
   };
 
@@ -328,7 +342,20 @@ function isEstimated(point: MapPoint): boolean {
 }
 
 function isCluster(point: MapPoint): boolean {
-  return Number(point.count ?? 1) > 1;
+  return (
+    String(point.id ?? "").startsWith("cluster:") ||
+    Number(point.count ?? 1) > 1
+  );
+}
+
+function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const radians = (value: number) => (value * Math.PI) / 180;
+  const dLat = radians(lat2 - lat1);
+  const dLng = radians(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
 }
 
 /* =========================================================
@@ -465,6 +492,54 @@ const hospitalIcon = L.divIcon({
   popupAnchor: [0, -38],
 });
 
+function createLocationPinIcon(color: string, zoom: number) {
+  const size = Math.max(18, Math.min(32, 18 + (zoom - 7) * 1.5));
+
+  return L.divIcon({
+    className: "location-pin-icon-wrapper",
+    iconSize: [size, size * 1.3],
+    iconAnchor: [size / 2, size * 1.3],
+    popupAnchor: [0, -size],
+    tooltipAnchor: [0, -size * 0.9],
+
+    html: `
+      <div class="location-pin-icon" style="--pin-color:${color};width:${size}px;height:${size * 1.3}px">
+        <svg viewBox="0 0 32 42" width="100%" height="100%" aria-hidden="true">
+          <path
+            d="M16 1C7.7 1 1 7.7 1 16c0 11 15 25 15 25s15-14 15-25C31 7.7 24.3 1 16 1Z"
+            fill="${color}"
+            stroke="#fff"
+            stroke-width="2"
+          />
+          <circle cx="16" cy="15" r="5.5" fill="#fff"/>
+        </svg>
+      </div>
+    `,
+  });
+}
+
+type MapFocusTarget = {
+  id: string;
+  latitude: number;
+  longitude: number;
+} | null;
+
+function MapFocusController({ target }: { target: MapFocusTarget }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!target) return;
+    map.flyTo(
+      [target.latitude, target.longitude],
+      Math.max(map.getZoom(), 15),
+      {
+        animate: true,
+        duration: 0.8,
+      },
+    );
+  }, [map, target]);
+  return null;
+}
+
 /* =========================================================
    MAIN MAP COMPONENT
    ========================================================= */
@@ -477,6 +552,13 @@ export default function MapClient() {
   const [viewport, setViewport] = useState<Viewport>(INITIAL_VIEWPORT);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<MapPoint | null>(null);
+  const [focusedRecordId, setFocusedRecordId] = useState<string | null>(null);
+  const [mapFocusTarget, setMapFocusTarget] = useState<MapFocusTarget>(null);
+  const [clusterRecords, setClusterRecords] = useState<MapPoint[]>([]);
+  const [clusterRecordsLoading, setClusterRecordsLoading] = useState(false);
+  const [clusterRecordsError, setClusterRecordsError] = useState("");
+  const [clusterPage, setClusterPage] = useState(1);
+  const [clusterTotal, setClusterTotal] = useState(0);
   const [mode, setMode] = useState<"clusters" | "points">("clusters");
 
   const [loading, setLoading] = useState(false);
@@ -498,6 +580,8 @@ export default function MapClient() {
   const [mapKey, setMapKey] = useState(0);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const [zoomLevel, setZoomLevel] = useState(7);
 
   /* -------------------------------------------------------
      Viewport updates
@@ -523,6 +607,8 @@ export default function MapClient() {
   useEffect(() => {
     setPoints([]);
     setSelected(null);
+    setFocusedRecordId(null);
+    setMapFocusTarget(null);
     setViewport(INITIAL_VIEWPORT);
     setFilterOptions(EMPTY_FILTERS);
     setFilters(INITIAL_ACTIVE_FILTERS);
@@ -657,7 +743,13 @@ export default function MapClient() {
         setMaxPoints(
           typeof body.maxPoints === "number" ? body.maxPoints : null,
         );
-        setSelected(null);
+        // Keep an explicitly selected record selected while its zoomed-in
+        // viewport reloads. Clear only cluster selections during map refresh.
+        setSelected((current) =>
+          current && !isCluster(current) ? current : null,
+        );
+        setClusterRecords([]);
+        setClusterRecordsError("");
         setDataLoaded(true);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
@@ -679,6 +771,53 @@ export default function MapClient() {
       controller.abort();
     };
   }, [district, viewport, search, filters, mapRetry]);
+
+  useEffect(() => {
+    if (!selected || !isCluster(selected)) {
+      setClusterRecords([]);
+      setClusterTotal(0);
+      setClusterRecordsLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    async function loadClusterRecords() {
+      setClusterRecordsLoading(true);
+      setClusterRecordsError("");
+      try {
+        const params = new URLSearchParams({
+          district,
+          latitude: String(selected.latitude),
+          longitude: String(selected.longitude),
+          radiusKm: "20",
+          page: String(clusterPage),
+          pageSize: "10",
+        });
+        for (const [key, value] of Object.entries(filters))
+          if (value.trim()) params.set(key, value);
+        if (search.trim()) params.set("search", search.trim());
+        const response = await fetch(
+          `/api/map/cluster-details?${params.toString()}`,
+          { cache: "no-store", signal: controller.signal },
+        );
+        const body = await response.json();
+        if (!response.ok || !body.success)
+          throw new Error(body.error || "Unable to load cluster records.");
+        setClusterRecords(Array.isArray(body.records) ? body.records : []);
+        setClusterTotal(Number(body.total ?? 0));
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return;
+        setClusterRecordsError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load cluster records.",
+        );
+      } finally {
+        if (!controller.signal.aborted) setClusterRecordsLoading(false);
+      }
+    }
+    void loadClusterRecords();
+    return () => controller.abort();
+  }, [selected, clusterPage, district, filters, search]);
 
   /* -------------------------------------------------------
      Filter helpers
@@ -923,6 +1062,8 @@ export default function MapClient() {
                 }
               />
 
+              <MapZoomTracker onZoomChange={setZoomLevel} />
+              <MapFocusController target={mapFocusTarget} />
               <DistrictBoundaryLayer district={district} />
 
               {district.trim().toLowerCase() === "murshidabad" && (
@@ -1005,6 +1146,7 @@ export default function MapClient() {
 
               {points.map((point, index) => {
                 const coordinates = getPointCoordinates(point);
+
                 if (!coordinates) return null;
 
                 const count = Math.max(1, Number(point.count ?? 1));
@@ -1012,56 +1154,114 @@ export default function MapClient() {
                 const estimated = isEstimated(point);
                 const cluster = isCluster(point);
 
-                const color = cluster
-                  ? "#64748b"
-                  : estimated || point.status === "review"
-                    ? "#e76f32"
-                    : "#32936f";
+                const isFocusedRecord = Boolean(
+                  point.id && point.id === focusedRecordId,
+                );
+                const color = isFocusedRecord
+                  ? "#2563EB"
+                  : cluster
+                    ? "#64748b"
+                    : estimated || point.status === "review"
+                      ? "#e76f32"
+                      : "#32936f";
 
                 const key =
                   point.id ?? `${point.latitude}-${point.longitude}-${index}`;
 
+                const title =
+                  point.village_name ||
+                  point.original_address ||
+                  point.full_address ||
+                  point.district;
+
+                const address =
+                  point.original_address ||
+                  point.full_address ||
+                  point.block_name ||
+                  point.district;
+
+                const tooltipText = cluster
+                  ? `${numberFormat.format(count)} locations`
+                  : `${title} — ${estimated ? "Estimated coordinates; verification required" : `Status: ${point.status ?? "mapped"}`}`;
+
+                // Keep clusters distinct from individual location pins.
+                if (cluster) {
+                  return (
+                    <CircleMarker
+                      key={key}
+                      center={coordinates}
+                      radius={Math.max(
+                        7,
+                        Math.min(25, 7 + Math.log2(count) * 2.7),
+                      )}
+                      pathOptions={{
+                        color,
+                        fillColor: color,
+                        fillOpacity: 0.85,
+                        weight: 2,
+                      }}
+                      eventHandlers={{
+                        click: () => {
+                          setSelected(point);
+                          setClusterPage(1);
+                          setClusterRecords([]);
+                          setClusterRecordsError("");
+                        },
+                      }}
+                    >
+                      <Tooltip direction="top" sticky>
+                        {tooltipText}
+                      </Tooltip>
+
+                      <Popup>
+                        <strong>
+                          {numberFormat.format(count)} locations · 20 km cluster
+                        </strong>
+                        <br />
+                        {district.toLowerCase() === "murshidabad" &&
+                          `Approx. ${distanceKm(coordinates[0], coordinates[1], 24.6734219, 87.9313289).toFixed(1)} km from Central Hospital, Tarapur`}
+                        <br />
+                        {address}
+                        <br />
+                        {numberFormat.format(estimatedCount)} estimated
+                        coordinates
+                        {Number(point.review_count ?? 0) > 0 &&
+                          ` · ${numberFormat.format(Number(point.review_count))} review records`}
+                      </Popup>
+                    </CircleMarker>
+                  );
+                }
+
                 return (
-                  <CircleMarker
+                  <Marker
                     key={key}
-                    center={coordinates}
-                    radius={
-                      cluster ? Math.min(25, 7 + Math.log2(count) * 2.7) : 6
-                    }
-                    pathOptions={{
-                      color,
-                      fillColor: color,
-                      fillOpacity: 0.78,
-                      weight: 2,
-                    }}
+                    position={coordinates}
+                    icon={createLocationPinIcon(color, zoomLevel)}
+                    zIndexOffset={isFocusedRecord ? 20000 : 0}
                     eventHandlers={{
                       click: () => setSelected(point),
                     }}
                   >
+                    <Tooltip direction="top" sticky>
+                      <div style={{ minWidth: 150, maxWidth: 260 }}>
+                        <strong>{title}</strong>
+                        <br />
+                        <span>{address}</span>
+                        <br />
+                        <strong>
+                          {estimated
+                            ? "Estimated coordinates — verification required"
+                            : `Status: ${point.status ?? "mapped"}`}
+                        </strong>
+                      </div>
+                    </Tooltip>
+
                     <Popup>
-                      <strong>
-                        {cluster
-                          ? `${numberFormat.format(count)} locations`
-                          : point.village_name ||
-                            point.original_address ||
-                            point.district}
-                      </strong>
+                      <strong>{title}</strong>
                       <br />
-                      {point.original_address ||
-                        point.full_address ||
-                        point.block_name ||
-                        district}
+                      {address}
                       <br />
-                      {cluster ? (
-                        <>
-                          {numberFormat.format(estimatedCount)} estimated
-                          coordinates in this cluster
-                          {Number(point.review_count ?? 0) > 0 &&
-                            ` · ${numberFormat.format(
-                              Number(point.review_count),
-                            )} review records`}
-                        </>
-                      ) : estimated ? (
+                      {estimated ? (
                         <strong>
                           Estimated coordinates — verification required
                         </strong>
@@ -1069,12 +1269,12 @@ export default function MapClient() {
                         `Status: ${point.status ?? "mapped"}`
                       )}
                     </Popup>
-                  </CircleMarker>
+                  </Marker>
                 );
               })}
 
               {/* Manually placed hospital markers */}
-              {MANUAL_HOSPITALS.filter(
+              {/* {MANUAL_HOSPITALS.filter(
                 (hospital) =>
                   hospital.district.toLowerCase() === district.toLowerCase(),
               ).map((hospital) => (
@@ -1151,7 +1351,7 @@ export default function MapClient() {
                     </div>
                   </Popup>
                 </CircleMarker>
-              ))}
+              ))} */}
             </MapContainer>
 
             <div className="map-legend">
@@ -1202,7 +1402,161 @@ export default function MapClient() {
             </div>
           </div>
 
-          {!selected ? (
+          {selected && isCluster(selected) ? (
+            <div className="map-detail-content">
+              <div className="map-detail-address">Cluster details</div>
+              <div className="map-detail-row">
+                <span>Records in cluster</span>
+                <strong>
+                  {numberFormat.format(Number(selected.count ?? 0))}
+                </strong>
+              </div>
+              <div className="map-detail-row">
+                <span>Radius rule</span>
+                <strong>20 km from centre</strong>
+              </div>
+              <div className="map-detail-row">
+                <span>Centre latitude</span>
+                <strong>{Number(selected.latitude).toFixed(6)}</strong>
+              </div>
+              <div className="map-detail-row">
+                <span>Centre longitude</span>
+                <strong>{Number(selected.longitude).toFixed(6)}</strong>
+              </div>
+              {district.toLowerCase() === "murshidabad" && (
+                <div className="map-detail-row">
+                  <span>Distance to Central Hospital</span>
+                  <strong>
+                    {distanceKm(
+                      Number(selected.latitude),
+                      Number(selected.longitude),
+                      24.6734219,
+                      87.9313289,
+                    ).toFixed(2)}{" "}
+                    km
+                  </strong>
+                </div>
+              )}
+              <h3 style={{ marginTop: 18 }}>Records in this 20 km cluster</h3>
+              <p style={{ fontSize: 12, color: "#64748B" }}>
+                Zoom in to see individual address pins. Select any record below
+                to zoom to its exact stored coordinates and highlight it in
+                blue.
+              </p>
+              {clusterRecordsLoading && <p>Loading records…</p>}
+              {clusterRecordsError && <p role="alert">{clusterRecordsError}</p>}
+              {!clusterRecordsLoading &&
+                clusterRecords.map((record) => {
+                  const recordId = String(record.id ?? "");
+                  const recordAddress =
+                    record.original_address ||
+                    record.full_address ||
+                    record.village_name ||
+                    "Address unavailable";
+                  const recordCoordinates = getPointCoordinates(record);
+                  const isFocused = Boolean(
+                    recordId && recordId === focusedRecordId,
+                  );
+                  return (
+                    <button
+                      key={recordId || `${record.latitude}-${record.longitude}`}
+                      type="button"
+                      className="map-detail-row"
+                      aria-pressed={isFocused}
+                      onClick={() => {
+                        if (!recordCoordinates) return;
+                        setFocusedRecordId(recordId);
+                        setSelected(record);
+                        setMapFocusTarget({
+                          id: recordId,
+                          latitude: recordCoordinates[0],
+                          longitude: recordCoordinates[1],
+                        });
+                      }}
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        textAlign: "left",
+                        cursor: "pointer",
+                        padding: "10px",
+                        marginTop: 6,
+                        borderRadius: 8,
+                        border: isFocused
+                          ? "2px solid #2563EB"
+                          : "1px solid #E2E8F0",
+                        background: isFocused ? "#EFF6FF" : "white",
+                        color: "inherit",
+                      }}
+                    >
+                      <strong>{recordAddress}</strong>
+                      <div style={{ fontSize: 12, marginTop: 4 }}>
+                        {record.block_name || record.district} ·{" "}
+                        {record.status || "mapped"}
+                      </div>
+                      <div
+                        style={{ fontSize: 11, marginTop: 3, color: "#64748B" }}
+                      >
+                        Imported IP_Address/address value · Record ID:{" "}
+                        {recordId || "—"}
+                      </div>
+                      <div
+                        style={{ fontSize: 11, marginTop: 3, color: "#2563EB" }}
+                      >
+                        {recordCoordinates
+                          ? "Click to zoom to and highlight this location"
+                          : "Coordinates unavailable"}
+                      </div>
+                      {record.geocode_provider?.startsWith(
+                        "gemini-estimate-unverified",
+                      ) && (
+                        <div style={{ color: "#b45309", fontSize: 12 }}>
+                          Estimated coordinates — verification required
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              {!clusterRecordsLoading &&
+                clusterTotal === 0 &&
+                !clusterRecordsError && (
+                  <p>No records found within this 20 km radius.</p>
+                )}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  marginTop: 12,
+                }}
+              >
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  disabled={clusterPage <= 1 || clusterRecordsLoading}
+                  onClick={() =>
+                    setClusterPage((page) => Math.max(1, page - 1))
+                  }
+                >
+                  Previous
+                </button>
+                <span style={{ fontSize: 12 }}>
+                  Page {clusterPage} · {numberFormat.format(clusterTotal)}{" "}
+                  records
+                </span>
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  disabled={
+                    clusterPage * 10 >= clusterTotal || clusterRecordsLoading
+                  }
+                  onClick={() => setClusterPage((page) => page + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          ) : !selected ? (
             <div className="map-detail-empty">
               <span className="map-detail-empty-icon">
                 <MapPin size={23} />

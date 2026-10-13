@@ -3,7 +3,7 @@ import MapPageClient from "./MapPageClient";
 export default function MapPage() {
   return (
     <div className="workspace-page">
-      <section className="page-heading">
+      {/* <section className="page-heading">
         <div>
           <div className="eyebrow">LOCATION INTELLIGENCE</div>
 
@@ -14,7 +14,7 @@ export default function MapPage() {
             location records.
           </p>
         </div>
-      </section>
+      </section> */}
 
       <MapPageClient />
     </div>
