@@ -773,21 +773,23 @@ export default function MapClient() {
   }, [district, viewport, search, filters, mapRetry]);
 
   useEffect(() => {
-    if (!selected || !isCluster(selected)) {
+    if (!district || !selected || !isCluster(selected)) {
       setClusterRecords([]);
       setClusterTotal(0);
       setClusterRecordsLoading(false);
       return;
     }
+    const selectedDistrict = district;
+    const selectedCluster = selected;
     const controller = new AbortController();
     async function loadClusterRecords() {
       setClusterRecordsLoading(true);
       setClusterRecordsError("");
       try {
         const params = new URLSearchParams({
-          district,
-          latitude: String(selected.latitude),
-          longitude: String(selected.longitude),
+          district: selectedDistrict,
+          latitude: String(selectedCluster.latitude),
+          longitude: String(selectedCluster.longitude),
           radiusKm: "20",
           page: String(clusterPage),
           pageSize: "10",
